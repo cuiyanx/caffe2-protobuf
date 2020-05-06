@@ -18,7 +18,11 @@ function pareData(dataValue, dataType) {
   switch(dataType) {
     case "i":
     case "ints": {
-      dataType = "int64";
+      if (dataValue.unsigned) {
+        dataType = "int32";
+      } else {
+        dataType = "uint32";
+      }
       let dataTmp = [];
       if (typeof dataValue.length == "undefined") {
         let value = new Long(dataValue.low, dataValue.high, dataValue.unsigned).toNumber();
@@ -33,7 +37,7 @@ function pareData(dataValue, dataType) {
     } break;
     case "f":
     case "floats": {
-      dataType = "float64";
+      dataType = "float32";
     } break;
     case "s": {
       dataType = "uint8";
@@ -119,7 +123,7 @@ for (let opIdx in predict_message.op) {
 }
 
 console.log(layers);
-//console.log(externalInputs);
+console.log(externalInputs);
 console.log(predict_message);
 
 fs.writeFileSync(JSONpath, JSON.stringify(layers, null, 4));

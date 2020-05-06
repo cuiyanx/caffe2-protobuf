@@ -1,7 +1,8 @@
 class Caffe2ModelImporter {
   constructor(kwargs) {
     this._isQuantized = kwargs.isQuantized;
-    this._rawModel = kwargs.rawModel;
+    this._netModel = kwargs.rawModel;
+    this._weightModel = kwargs.weightModel;
     this._model = null;
     this._compilation = null;
     this._execution = null;
@@ -9,6 +10,7 @@ class Caffe2ModelImporter {
     this._tensorTypes = [];
     this._operations = [];
     this._operands = [];
+    this._weightTensor = [...initCaffe2WeightTensor(this._weightModel)];
     this._requiredOps = new Set();
     this._options = {
       softmax: kwargs.softmax,
@@ -46,8 +48,8 @@ class Caffe2ModelImporter {
     this._model = await this._nn.createModel(options);
 
     this._addTensorOperands();
-    this._addOpsAndParams();
-    this._addInputsOutputs();
+    this._addOpsAndParams(); // Realization
+    this._addInputsOutputs(); // Realization
 
     await this._model.finish();
     this._compilation = await this._model.createCompilation();
@@ -76,9 +78,9 @@ class Caffe2ModelImporter {
   }
 
   async * layerIterator(inputTensors, layerList) {
-    let graph = this._rawModel;
+    const graph = this._netModel;
 
-    let createLayer = async (nodeIdx) => {
+    const getLayerOutput = async (lastNodeIdx) => {
       this._tensorIds = [];
       this._tensorTypes = [];
       this._operations = [];
@@ -89,14 +91,14 @@ class Caffe2ModelImporter {
       }
 
       this._model = await this._nn.createModel({backend: this._backend});
-      this._addTensorOperands(nodeIdx);
-      this._addOpsAndParams(nodeIdx);
+      this._addTensorOperands();
+      this._addOpsAndParams(); // Realization
 
-      let node = graph.op[nodeIdx];
-      let output = node.output[0];
-      let input = node.input[0];
-      let inputIds = [this._getTensorId(input)];
-      let outputIds = [this._getTensorId(output)];
+      const lastNode = graph.op[lastNodeIdx];
+      const output = lastNode.output[0];
+      const input = lastNode.input;
+      const inputIds = this._getTensorsId(input); // Realization
+      const outputIds = this._getTensorsId(output); // Realization
       this._model.identifyInputsAndOutputs(inputIds, outputIds);
 
       await this._model.finish();
@@ -105,7 +107,7 @@ class Caffe2ModelImporter {
       await this._compilation.finish();
       this._execution = await this._compilation.createExecution();
 
-      let outputSize = output.shape().reduce((a, b) => a * b);
+      const outputSize = output.shape().reduce((a, b) => a * b); // Realization
       let outputTensor;
       if (this._isQuantized) {
         outputTensor = new Uint8Array(outputSize);
@@ -114,41 +116,48 @@ class Caffe2ModelImporter {
       }
       await this.compute(inputTensors, [outputTensor]);
       return {
-        layerId: nodeIdx,
-        outputName: node.name,
+        layerId: lastNodeIdx,
+        outputName: lastNode.name,
         tensor: outputTensor,
         outputIds: outputIds,
         inputIds: inputIds
       };
     };
 
-    let operatorsLength = graph.op.length;
+    const operatorsLength = graph.op.length;
     if (typeof layerList === 'undefined') {
-      for (let layerId = 0; layerId < operatorsLength;) {
-        let layerInfo = await createLayer(layerId);
-        yield layerInfo;
-        layerId = layerInfo.layerId + 1;
+      for (let lastNode = 0; lastNode < operatorsLength;) {
+        const layerOutput = await getLayerOutput(lastNode);
+        yield layerOutput;
+        lastNode = layerOutput.layerId + 1;
       }
     } else {
       for (let layerId of layerList) {
         if (layerId >= operatorsLength || layerId < 0) {
           throw new Error(`Illegal layer ${layerId}`);
         }
-        yield await createLayer(layerId);
+        yield await getLayerOutput(layerId);
       }
     }
   }
 
-  _addTensorOperands(nodeIdx) {
-    const graph = this._rawModel.op[nodeIdx];
+  // Add tensor
+  _addTensorOperands() {
+    let graph = this._netModel;
 
-    for (const input of graph.input) {
-      const inputName = input.graphId();
-      const scale = this._inputScaleFactor == undefined ? 1.0 : this._inputScaleFactor;
-      const inputType = {
-        type: this._getTypeCode(input.dataType()), dimensions: input.shape(), scale
-      };
-      this._addNamedOperand(inputName, inputType);
+    for (let inputIdx in graph.externalInput) {
+      this._addTensorByName(graph.externalInput[inputIdx]);
     }
+
+    for (let outputIde in graph.externalOutput) {
+      this._addTensorByName(graph.externalOutput[outputIde]);
+    }
+  }
+
+  _addTensorByName(TensorName) {
+    if (this._tensorIds[TensorName])
+      throw new Error(`Tensor ${TensorName} is already added`);
+
+
   }
 }

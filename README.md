@@ -3,7 +3,8 @@ Load caffe2 model with protobuf.js
 
 ## Prerequisites
 
-Copy `init` file and `predict` file to `./model` path, and rename to `init_net_int8.pb` and `predict_net_int8.pb`.
+1. Create `models` and `output` folder on `./`.
+2. Copy `init` file and `predict` file to `./models` path, and rename to `init_net_int8.pb` and `predict_net_int8.pb`.
 
 ## Start
 
