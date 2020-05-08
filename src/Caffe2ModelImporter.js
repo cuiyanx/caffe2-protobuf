@@ -10,7 +10,7 @@ class Caffe2ModelImporter {
     this._tensorTypes = [];
     this._operations = [];
     this._operands = [];
-    this._weightTensor = [...initCaffe2WeightTensor(this._weightModel)];
+    this._weightTensor = [...initCaffe2WeightTensor(this._weightModel, this._isQuantized)];
     this._requiredOps = new Set();
     this._options = {
       softmax: kwargs.softmax,

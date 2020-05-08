@@ -19,9 +19,9 @@ function pareData(dataValue, dataType) {
     case "i":
     case "ints": {
       if (dataValue.unsigned) {
-        dataType = "int32";
-      } else {
         dataType = "uint32";
+      } else {
+        dataType = "int32";
       }
       let dataTmp = [];
       if (typeof dataValue.length == "undefined") {
@@ -122,8 +122,9 @@ for (let opIdx in predict_message.op) {
   }
 }
 
-console.log(layers);
-console.log(externalInputs);
+//console.log(layers);
+//console.log(externalInputs['MobilenetV1/Conv2d_5_pointwise/weights/read/_94__cf__94:0']);
 console.log(predict_message);
+//console.log(init_message.op[0]);
 
-fs.writeFileSync(JSONpath, JSON.stringify(layers, null, 4));
+//fs.writeFileSync(JSONpath, JSON.stringify(layers, null, 4));
