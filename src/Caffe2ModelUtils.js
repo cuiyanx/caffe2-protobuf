@@ -3,7 +3,10 @@ class Caffe2ModelUtils {
     this._predict = predictModel;
     this._init = initModel;
     this._quantized = isQuantized;
+    this._predictDataFormat = false;
+    this._initDataFormat = false;
 
+    this._checkDataFormat();
     this._initMap = this._initModelHandler();
     this._predictMap = this._predictModelHandler();
   }
@@ -12,14 +15,18 @@ class Caffe2ModelUtils {
     return this._predictMap;
   }
 
+  getCaffe2InitModel () {
+    return this._initMap;
+  }
+
   _initModelHandler () {
-    let initTensorMap = new Map();
+    let initTensorMap = [];
 
     for (let op of this._init.op) {
-      initTensorMap[op.output] = new Map();
+      initTensorMap[op.output] = [];
 
       for (let arg of op.arg) {
-        initTensorMap[op.output][arg.name] = new Map();
+        initTensorMap[op.output][arg.name] = [];
         let data = this._checkArgData(arg);
         initTensorMap[op.output][arg.name]["type"] = data.type;
         initTensorMap[op.output][arg.name]["value"] = data.value;
@@ -41,7 +48,8 @@ class Caffe2ModelUtils {
       }
 
       // NCHW => NHWC
-      if (typeof initTensorMap[op.output]["shape"] != "undefined" &&
+      if (this._initDataFormat &&
+          typeof initTensorMap[op.output]["shape"] != "undefined" &&
           typeof initTensorMap[op.output]["values"] != "undefined") {
         if (initTensorMap[op.output]["shape"]["value"].length == 4) {
           initTensorMap[op.output] = this._NCHWtoNHWCforTensor(initTensorMap[op.output], true);
@@ -55,10 +63,10 @@ class Caffe2ModelUtils {
   }
 
   _predictModelHandler() {
-    let predictTensorMap = new Map();
+    let predictTensorMap = [];
 
     for (let opIdx in this._predict.op) {
-      predictTensorMap[opIdx] = new Map();
+      predictTensorMap[opIdx] = [];
       let op = this._predict.op[opIdx];
 
       // name, type, engine
@@ -67,37 +75,46 @@ class Caffe2ModelUtils {
       predictTensorMap[opIdx]["engine"] = op.engine;
 
       // input
-      predictTensorMap[opIdx]["input"] = new Map();
+      predictTensorMap[opIdx]["input"] = [];
       for (let inputIdx in op.input) {
+        predictTensorMap[opIdx]["input"][inputIdx] = [];
         let input = op.input[inputIdx];
+        predictTensorMap[opIdx]["input"][inputIdx]["name"] = input;
 
-        if (inputIdx == 0) {
-          predictTensorMap[opIdx]["input"][input] = "Up";
-        } else {
-          predictTensorMap[opIdx]["input"][input] = this._initMap[input];
+        for (let key in this._initMap[input]) {
+          predictTensorMap[opIdx]["input"][inputIdx][key] = this._initMap[input][key];
         }
       }
 
       // output
-      predictTensorMap[opIdx]["output"] = new Map();
+      predictTensorMap[opIdx]["output"] = [];
       for (let outputIdx in op.output) {
+        predictTensorMap[opIdx]["output"][outputIdx] = [];
         let output = op.output[outputIdx];
-
-        predictTensorMap[opIdx]["output"][output] = "Down";
+        predictTensorMap[opIdx]["output"][outputIdx]["name"] = output;
       }
 
       // arg
-      predictTensorMap[opIdx]["arg"] = new Map();
+      predictTensorMap[opIdx]["arg"] = [];
       for (let argIdx in op.arg) {
         let arg = op.arg[argIdx];
 
-        predictTensorMap[opIdx]["arg"][arg.name] = new Map();
+        predictTensorMap[opIdx]["arg"][arg.name] = [];
         let data = this._checkArgData(arg);
         predictTensorMap[opIdx]["arg"][arg.name]["type"] = data.type;
         predictTensorMap[opIdx]["arg"][arg.name]["value"] = data.value;
 
+        if (arg.name == "order") {
+          predictTensorMap[opIdx]["arg"][arg.name]["type"] = "str";
+          let orderTmp = [];
+          for (let val of predictTensorMap[opIdx]["arg"][arg.name]["value"]) {
+            orderTmp.push(String.fromCharCode(val));
+          }
+          predictTensorMap[opIdx]["arg"][arg.name]["value"] = orderTmp.join("");
+        }
+
         // uint8 => int8
-        if (this._quantized &&
+        if (this._quantized && arg.name != "order" &&
             typeof predictTensorMap[opIdx]["arg"][arg.name]["type"] != "undefined" &&
             predictTensorMap[opIdx]["arg"][arg.name]["type"] == "uint8" &&
             typeof predictTensorMap[opIdx]["arg"][arg.name]["value"] != "undefined" &&
@@ -111,7 +128,8 @@ class Caffe2ModelUtils {
         }
 
         // NCHW => NHWC
-        if (typeof predictTensorMap[opIdx]["arg"][arg.name]["type"] != "undefined" &&
+        if (this._predictDataFormat && arg.name != "order" &&
+            typeof predictTensorMap[opIdx]["arg"][arg.name]["type"] != "undefined" &&
             typeof predictTensorMap[opIdx]["arg"][arg.name]["value"] != "undefined") {
           if (predictTensorMap[opIdx]["arg"][arg.name]["value"].length == 4) {
             predictTensorMap[opIdx]["arg"][arg.name] = this._NCHWtoNHWCforArg(predictTensorMap[opIdx]["arg"][arg.name], true);
@@ -123,6 +141,51 @@ class Caffe2ModelUtils {
     }
 
     return predictTensorMap;
+  }
+
+  _checkDataFormat() {
+    this._checkInitDataFormat();
+    this._checkpredictDataFormat();
+    // console.log("initDataFormat: " + this._initDataFormat);
+    // console.log("_predictDataFormat: " + this._predictDataFormat);
+  }
+
+  _checkInitDataFormat() {
+    for (let op of this._init.op) {
+      for (let arg of op.arg) {
+        if (arg.name == "order") {
+          let data = this._checkArgData(arg);
+          let orderTmp = [];
+          for (let val of data.value) {
+            orderTmp.push(String.fromCharCode(val));
+          }
+          let formatStr = orderTmp.join("");
+          if (formatStr == "NCHW") {
+            this._initDataFormat = true;
+            return
+          };
+        }
+      }
+    }
+  }
+
+  _checkpredictDataFormat() {
+    for (let op of this._predict.op) {
+      for (let arg of op.arg) {
+        if (arg.name == "order") {
+          let data = this._checkArgData(arg);
+          let orderTmp = [];
+          for (let val of data.value) {
+            orderTmp.push(String.fromCharCode(val));
+          }
+          let formatStr = orderTmp.join("");
+          if (formatStr == "NCHW") {
+            this._predictDataFormat = true;
+            return
+          };
+        }
+      }
+    }
   }
 
   _checkArgData(arg) {
@@ -270,6 +333,8 @@ class Caffe2ModelUtils {
     else if (type == "float32") ctor = Float32Array;
     else if (type == "uint8") ctor = Uint8Array;
     else if (type == "int8") ctor = Int8Array;
+    else if (type == "str") ctor = Array;
+    else throw new Error(`${type} is not supported.`);
     return ctor;
   }
 
