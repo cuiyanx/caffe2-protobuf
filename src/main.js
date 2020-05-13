@@ -1,15 +1,16 @@
 var protobuf = require("protobufjs");
 var Long = require("long");
-var caffe2 = require("./caffe2-local.js");
+var caffe2 = require("./caffe2-test.js");
 var fs = require('fs');
-var init_path = "./models/init_net_int8.pb";
-var predict_path = "./models/predict_net_int8.pb";
+var init_path = "./models/squeezenet/init_net.pb";
+var predict_path = "./models/squeezenet/predict_net.pb";
 var JSONpath = "./output/caffe2-net.json";
 
 var init_buffer = fs.readFileSync(init_path);
 var predict_buffer = fs.readFileSync(predict_path);
-var init_message = caffe2.caffe2.NetDef.decode(init_buffer);
+//var init_message = caffe2.caffe2.NetDef.decode(init_buffer);
 var predict_message = caffe2.caffe2.NetDef.decode(predict_buffer);
+var tensorInfo = caffe2.caffe2.TensorProto.decode(predict_message.op[0]);
 
 var layers = new Map();
 var externalInputs = new Map();
@@ -64,7 +65,7 @@ function checkData(map) {
     }
   }
 }
-
+/*
 // externalInput
 for (let inputName of predict_message.externalInput) {
   externalInputs[inputName] = new Map();
@@ -121,10 +122,11 @@ for (let opIdx in predict_message.op) {
     layers["layer-" + opIdx]["arg"][arg.name]["value"] = data.value;
   }
 }
-
+*/
 //console.log(layers);
 //console.log(externalInputs['MobilenetV1/Conv2d_5_pointwise/weights/read/_94__cf__94:0']);
 console.log(predict_message);
-//console.log(init_message.op[0]);
+//console.log(init_message);
+console.log(tensorInfo);
 
 //fs.writeFileSync(JSONpath, JSON.stringify(layers, null, 4));

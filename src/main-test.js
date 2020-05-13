@@ -19,6 +19,9 @@ var configs = {
   backend: "WebML",
   prefer: "fast",
   softmax: false,
+  inputSize: [1, 226, 226, 3],
+  outputSize: [1, 1, 1000, 1],
+  isQuantized: true
 };
 
 var Caffe2ModelImporter = new Caffe2ModelImporter(configs);
