@@ -70,11 +70,7 @@ class Caffe2ModelImporter {
     this._setInputTensor();
     this._addOperandsAndArgs();
 
-    /*
-    this._addOperands();
-    this._addOpsAndParams(); // Realization
-    this._addInputsOutputs(); // Realization
-
+    /* For integrate
     await this._model.finish();
     this._compilation = await this._model.createCompilation();
 
@@ -591,7 +587,7 @@ class Caffe2ModelImporter {
 
       this._addOperation(opCode, inputs, outputs);
     }
-
+    /* For integrate
     // Write back all cached operands and operations
     for (let type of this._tensorTypes) {
       this._model.addOperand(type);
@@ -602,13 +598,13 @@ class Caffe2ModelImporter {
     }
 
     for (let [index, type] of Object.entries(this._quantParams)) {
-      console.log(index);
       this._model.setOperandSymmPerChannelQuantParams(index, type);
     }
 
     for (let [opCode, inputs, outputs] of this._operations) {
       this._model.addOperation(opCode, inputs, outputs);
     }
+    */
   }
 
   getRequiredOps() {
