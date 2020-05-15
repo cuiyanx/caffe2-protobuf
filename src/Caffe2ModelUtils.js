@@ -114,22 +114,7 @@ class Caffe2ModelUtils {
           }
           predictTensorMap[opIdx]["arg"][arg.name]["value"] = orderTmp.join("");
         }
-/*
-        // uint8 => int8
-        if (this._quantized &&
-            typeof initTensorMap[opIdx][op.output]["values"] != "undefined" &&
-            initTensorMap[opIdx][op.output]["values"]["type"] == "uint8" &&
-            typeof initTensorMap[opIdx][op.output]["Y_zero_point"] != "undefined" &&
-            initTensorMap[opIdx][op.output]["Y_zero_point"]["value"] == "128") {
-          initTensorMap[opIdx][op.output]["values"]["type"] = "int8";
-          let tmpArray = [];
-          for ( let val of Object.values(initTensorMap[opIdx][op.output]["values"]["value"])) {
-            tmpArray.push(val - 128);
-          }
-          initTensorMap[opIdx][op.output]["values"]["value"] = tmpArray;
-          initTensorMap[opIdx][op.output]["Y_zero_point"]["value"] = "0";
-        }
-*/
+
         // Data handle
         if (arg.name != "order" &&
             typeof predictTensorMap[opIdx]["arg"][arg.name]["type"] != "undefined" &&

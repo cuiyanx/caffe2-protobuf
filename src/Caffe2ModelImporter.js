@@ -4,7 +4,6 @@ class Caffe2ModelImporter {
     this._netModel = kwargs.rawModel;
     this._weightModel = kwargs.weightModel;
     this._inputSize = kwargs.inputSize;
-    this._outputSize = kwargs.outputSize;
     this._model = null;
     this._compilation = null;
     this._execution = null;
@@ -12,6 +11,7 @@ class Caffe2ModelImporter {
     this._tensorTypes = [];       //{ID: type}
     this._operations = [];        //{[opCode, inputs, outputs]}
     this._operands = [];          //{ID: value}
+    this._quantParams = [];       //{ID: type}
     this._netMap = [];
     this._requiredOps = new Set();
     this._options = {
@@ -32,7 +32,8 @@ class Caffe2ModelImporter {
       TENSOR_QUANT8_ASYMM_SIGNED: 14,
       AVERAGE_POOL_2D: 1,
       CONV_2D: 3,
-      DEPTHWISE_CONV_2D: 4
+      DEPTHWISE_CONV_2D: 4,
+      SOFTMAX: 25
     }; // delete
     let nnPolyfill = 22; // delete
     if (this._backend === 'WebML') {
@@ -190,6 +191,10 @@ class Caffe2ModelImporter {
     return this._addOperand({type: this._nn.INT32}, new Int32Array(value));
   }
 
+  _addArgFloat32 (value) {
+    return this._addOperand({type: this._nn.FLOAT32}, new Float32Array(value));
+  }
+
   _addOperand (type, value) {
     let index = this._operandIndex++;
     // Cache operand type
@@ -283,8 +288,10 @@ class Caffe2ModelImporter {
           let filterPoint = this._getAttributeValue(filterTensor, "Y_zero_point");
           let filterScales = this._getAttributeValue(filterTensor, "Y_scales");
           let filterTypeCode = null;
+          let isPerChannel = false;
           if (filterScales.length > 1) {
             filterTypeCode = this._nn.TENSOR_QUANT8_SYMM_PER_CHANNEL;
+            isPerChannel = true;
           } else {
             filterTypeCode = inputTypeCode;
           }
@@ -298,7 +305,7 @@ class Caffe2ModelImporter {
           let biasScales = this._getAttributeValue(biasTensor, "Y_scales");
           let biasTypeCode = this._nn.TENSOR_INT32;
           let biasType = null;
-          if (filterTypeCode == this._nn.TENSOR_QUANT8_SYMM_PER_CHANNEL) {
+          if (isPerChannel) {
             biasType = {
               type: biasTypeCode,
               dimensions: biasDims
@@ -312,6 +319,12 @@ class Caffe2ModelImporter {
             };
           }
           console.log(`  bias shape: [${biasDims}]`);
+
+          let kernels = this._getAttributeValue(args, "kernels");
+          if (!kernels || kernels.length !== 2)
+            throw new Error('Invalid kernels');
+          let kernelHeight = kernels[0];
+          let kernelWidth = kernels[1];
 
           // Pad
           let pads = this._getAttributeValue(args, "pads");
@@ -329,7 +342,6 @@ class Caffe2ModelImporter {
           let inputChannel = inputDime[inputDime.length - 1];
           if (args.hasOwnProperty("group")) {
             group = this._getAttributeValue(args, "group")[0];
-            console.log(`  group: [${group}]`);
           }
 
           // Fuse Relu
@@ -368,15 +380,34 @@ class Caffe2ModelImporter {
           }
           console.log(`  filter shape: [${filterDims}]`);
 
-          let filterType = {
-            type: filterTypeCode,
-            dimensions: filterDims,
-            scale: filterScales,
-            zeroPoint: filterPoint
-          };
+          let filterType = {};
+          if (isPerChannel) {
+            filterType = {
+              type: filterTypeCode,
+              dimensions: filterDims
+            };
+          } else {
+            filterType = {
+              type: filterTypeCode,
+              dimensions: filterDims,
+              scale: filterScales,
+              zeroPoint: filterPoint
+            };
+          }
 
           inputs.push(this._getTensorIdByName(inputName));
           inputs.push(this._addTensor(filterName, filterType, filterValue));
+          let filterID = this._getTensorIdByName(filterName);
+          let channelDim = 1;
+          if (isPerChannel) {
+            if (isDepthWiseConv) {
+              channelDim = 3;
+            }
+            this._quantParams[filterID] = {
+              channelDim: channelDim,
+              scales: new Float32Array(filterScales)
+            };
+          }
           inputs.push(this._addTensor(biasName, biasType, biasValue));
           inputs.push(this._addArgInt32([paddingLeft]));
           inputs.push(this._addArgInt32([paddingRight]));
@@ -393,7 +424,12 @@ class Caffe2ModelImporter {
           let outputTensor = node.output[0];
           let outputName = this._getAttributeName(outputTensor);
           let outputTypeCode = inputTypeCode;
-          let outputDims = [inputDime[0], inputDime[1], inputDime[2], biasDims[0]];
+          let outputDims = [
+            inputDime[0],
+            Math.floor((inputDime[1] - kernelHeight + paddingLeft + paddingTop) / strideHeight + 1),
+            Math.floor((inputDime[2] - kernelWidth + paddingRight + paddingBottom) / strideWidth + 1),
+            biasDims[0]
+          ];
           let outputScales = 1;
           if (args.hasOwnProperty("Y_scale")) {
             outputScales = this._getAttributeValue(args, "Y_scale");
@@ -444,6 +480,8 @@ class Caffe2ModelImporter {
 
           // Filter
           let filter = this._getAttributeValue(args, "kernels");
+          if (!filter || filter.length !== 2)
+            throw new Error('Invalid filter');
           let [filterWidth, filterHeight] = filter;
           console.log(`  filter: [${filter}]`);
 
@@ -472,6 +510,58 @@ class Caffe2ModelImporter {
           let outputTensor = node.output[0];
           let outputName = this._getAttributeName(outputTensor);
           let outputTypeCode = inputTypeCode;
+          let outputDims = [
+            inputDime[0],
+            Math.floor((inputDime[1] - filterHeight + paddingLeft + paddingTop) / strideHeight + 1),
+            Math.floor((inputDime[2] - filterWidth + paddingRight + paddingBottom) / strideWidth + 1),
+            inputDime[3]
+          ];
+          let outputScales = inputScales;
+          if (args.hasOwnProperty("Y_scale")) {
+            outputScales = this._getAttributeValue(args, "Y_scale");
+          }
+          let outputPoint = inputPoint;
+          if (args.hasOwnProperty("Y_zero_point")) {
+            outputPoint = this._getAttributeValue(args, "Y_zero_point");
+          }
+          let outputType = {
+            type: outputTypeCode,
+            dimensions: outputDims,
+            scale: outputScales,
+            zeroPoint: outputPoint
+          };
+          let outputID = this._addTensor(outputName, outputType);
+          outputs.push(outputID);
+          console.log(`  output shape: [${outputDims}]`);
+
+          // Add operation
+          opCode = this._nn.AVERAGE_POOL_2D;
+        } break;
+        case "Softmax": {
+          // Add inputs
+          let inputTensor = node.input[0];
+          let args = node.arg;
+
+          // Input
+          let inputName = this._getAttributeName(inputTensor);
+          let inputType = this._getTensorTypeByName(inputName);
+          let inputDime = inputType.dimensions;
+          let inputTypeCode = inputType.type;
+          let inputPoint = inputType.zeroPoint;
+          let inputScales = inputType.scale;
+          console.log(`  input shape: [${inputDime}]`);
+
+          // Beta
+          let Beta = this._getAttributeValue(args, "axis");
+          console.log(`  Beta: [${Beta}]`);
+
+          inputs.push(this._getTensorIdByName(inputName));
+          inputs.push(this._addArgFloat32([Beta]));
+
+          // Add outputs
+          let outputTensor = node.output[0];
+          let outputName = this._getAttributeName(outputTensor);
+          let outputTypeCode = inputTypeCode;
           let outputDims = inputDime;
           let outputScales = 1;
           if (args.hasOwnProperty("Y_scale")) {
@@ -492,32 +582,7 @@ class Caffe2ModelImporter {
           console.log(`  output shape: [${outputDims}]`);
 
           // Add operation
-          opCode = this._nn.AVERAGE_POOL_2D;
-        } break;
-        case "Softmax": {
-          throw new Error("------------working, here---------------");
-
-          //console.log(this._tensorIds);
-          //console.log(this._tensorTypes);
-          //console.log(this._operands);
-          /*
-          const input = node.inputs[0];
-          console.log(`  input shape: [${input.shape()}]`);
-
-          inputs.push(this._getTensorId(input));
-          inputs.push(this._addScalarFloat32(1.0)); // Set beta to 1.0
-
-          const output = node.outputs[0];
-          const outDims = output.shape();
-          const outputType = {
-            type: this._getTypeCode(output.dataType()), dimensions: outDims
-          };
-          const outputId = this._addNamedOperand(output.graphId(), outputType);
-          outputs.push(outputId);
-          console.log(`  output shape: [${outDims}]`);
-
           opCode = this._nn.SOFTMAX;
-          */
         } break;
         default: {
           throw new Error(`${node.operator} is not supported.`);
@@ -526,9 +591,29 @@ class Caffe2ModelImporter {
 
       this._addOperation(opCode, inputs, outputs);
     }
+
+    // Write back all cached operands and operations
+    for (let type of this._tensorTypes) {
+      this._model.addOperand(type);
+    }
+
+    for (let [index, value] of Object.entries(this._operands)) {
+      this._model.setOperandValue(index, value);
+    }
+
+    for (let [index, type] of Object.entries(this._quantParams)) {
+      console.log(index);
+      this._model.setOperandSymmPerChannelQuantParams(index, type);
+    }
+
+    for (let [opCode, inputs, outputs] of this._operations) {
+      this._model.addOperation(opCode, inputs, outputs);
+    }
   }
 
-
+  getRequiredOps() {
+    return this._requiredOps;
+  }
 }
 
 module.exports = Caffe2ModelImporter;
