@@ -352,7 +352,7 @@ class Caffe2ModelImporter {
             boundMin = this._getAttributeValue(args, "bound_min");
             console.log(`  bound: [${boundMax}, ${boundMin}]`);
           }
-          let FuseCode = this._getFuseCode(boundMax, boundMin);
+          let fuseCode = this._getFuseCode(boundMax, boundMin);
 
           if (group > 1) {
             if (group !== inputChannel) {
@@ -405,7 +405,7 @@ class Caffe2ModelImporter {
             }
             this._quantParams[filterID] = {
               channelDim: channelDim,
-              scales: new Float32Array(filterScales)
+              scales: new Float32Array([filterScales])
             };
           }
           inputs.push(this._addTensor(biasName, biasType, biasValue));
@@ -418,7 +418,7 @@ class Caffe2ModelImporter {
           if (isDepthWiseConv) {
             inputs.push(this._addArgInt32([1]));
           }
-          inputs.push(this._addArgInt32([FuseCode]));
+          inputs.push(this._addArgInt32([fuseCode]));
 
           // Add outputs
           let outputTensor = node.output[0];
@@ -493,7 +493,7 @@ class Caffe2ModelImporter {
             boundMin = this._getAttributeValue(args, "bound_min");
             console.log(`  bound: [${boundMax}, ${boundMin}]`);
           }
-          let FuseCode = this._getFuseCode(boundMax, boundMin);
+          let fuseCode = this._getFuseCode(boundMax, boundMin);
 
           inputs.push(this._getTensorIdByName(inputName));
           inputs.push(this._addArgInt32([paddingLeft]));
@@ -504,7 +504,7 @@ class Caffe2ModelImporter {
           inputs.push(this._addArgInt32([strideHeight]));
           inputs.push(this._addArgInt32([filterWidth]));
           inputs.push(this._addArgInt32([filterHeight]));
-          inputs.push(this._addArgInt32([FuseCode]));
+          inputs.push(this._addArgInt32([fuseCode]));
 
           // Add outputs
           let outputTensor = node.output[0];
@@ -552,11 +552,11 @@ class Caffe2ModelImporter {
           console.log(`  input shape: [${inputDime}]`);
 
           // Beta
-          let Beta = this._getAttributeValue(args, "axis");
-          console.log(`  Beta: [${Beta}]`);
+          let beta = this._getAttributeValue(args, "axis");
+          console.log(`  Beta: [${beta}]`);
 
           inputs.push(this._getTensorIdByName(inputName));
-          inputs.push(this._addArgFloat32([Beta]));
+          inputs.push(this._addArgFloat32([beta]));
 
           // Add outputs
           let outputTensor = node.output[0];
